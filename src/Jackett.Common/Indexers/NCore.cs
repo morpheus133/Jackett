@@ -125,7 +125,7 @@ namespace Jackett.Common.Indexers
 
             if (seasonep != null)
             {
-                searchString = Regex.Split(query.GetQueryString(), @"(?i)S\d+E?\d+\s?$")[0];
+                searchString = query.SanitizedSearchTerm;
             }
 
             pairs.Add(new KeyValuePair<string, string>("nyit_sorozat_resz", "true"));
@@ -208,9 +208,25 @@ namespace Jackett.Common.Indexers
         
                     else
                     {
-                        Match m = Regex.Match(release.Title, @""+ seasonep + @"\s?$", RegexOptions.IgnoreCase);
-                        if (m.Success)
+                        if (query.MatchQueryStringAND(release.Title, null, seasonep))
                         {
+                            /* For sonnar if the search querry was english the title must be english also so we need to change the Description and Title*/
+                            var temp = release.Title;
+                            
+                            // releasedata everithing after Name.S0Xe0X
+                            var releasedata =release.Title.Split(new[] { seasonep }, StringSplitOptions.None)[1].Trim();
+                            
+                            /* if the release name not contains the language we add them because it is know from category */
+                            if (cat.Contains("hun") && !releasedata.Contains("hun"))
+                                releasedata += ".hun";
+
+                            // release description contains [imdb: 8.7] but we only need the data before it for title
+                            var description = release.Description.Split('[');
+                            
+                            release.Title = (description[0].Trim() + "." + seasonep.Trim() + "."+ releasedata.Trim('.')).Replace(' ', '.');
+
+                            // add back imdb points to the description [imdb: 8.7]
+                            release.Description = temp+" ["+ description[1];
                             releases.Add(release);
                         }
                     }
@@ -228,11 +244,9 @@ namespace Jackett.Common.Indexers
         protected override async Task<IEnumerable<ReleaseInfo>> PerformQuery(TorznabQuery query)
         {
             var results = await PerformQuery(query, null);
-            if (results.Count()==0 && query.IsTVSearch)
+            if (results.Count()==0 && query.IsTVSearch) // if we search for a localized title ncore can't handle any extra S/E information, search without it and AND filter the results. See #1450
             {
-                var regex = new Regex(@"(?i)S\d+E?\d+\s?$");
-                String seasonepisode = regex.Match(query.GetQueryString()).Value;
-                results = await PerformQuery(query, seasonepisode.Trim());
+                results = await PerformQuery(query,query.GetEpisodeSearchString());
             }
 
             return results;
